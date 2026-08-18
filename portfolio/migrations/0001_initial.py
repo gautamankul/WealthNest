@@ -1,0 +1,11 @@
+from django.db import migrations,models
+class Migration(migrations.Migration):
+    initial=True
+    dependencies=[]
+    operations=[
+      migrations.CreateModel(name='Investment',fields=[('id',models.BigAutoField(auto_created=True,primary_key=True,serialize=False,verbose_name='ID')),('asset',models.CharField(choices=[('Mutual Funds','Mutual Funds'),('Gold','Gold'),('Silver','Silver'),('Bonds','Bonds'),('Other','Other')],max_length=30)),('name',models.CharField(max_length=200)),('purchase_date',models.DateField(blank=True,null=True)),('quantity',models.DecimalField(blank=True,decimal_places=4,max_digits=18,null=True)),('invested_amount',models.DecimalField(decimal_places=2,default=0,max_digits=15)),('current_value',models.DecimalField(decimal_places=2,default=0,max_digits=15)),('notes',models.TextField(blank=True)),('updated_at',models.DateTimeField(auto_now=True))]),
+      migrations.CreateModel(name='AllocationTarget',fields=[('id',models.BigAutoField(auto_created=True,primary_key=True,serialize=False,verbose_name='ID')),('asset',models.CharField(choices=[('Mutual Funds','Mutual Funds'),('Gold','Gold'),('Silver','Silver'),('Bonds','Bonds'),('Other','Other')],max_length=30,unique=True)),('target_pct',models.DecimalField(decimal_places=2,default=0,max_digits=5))]),
+      migrations.CreateModel(name='Goal',fields=[('id',models.BigAutoField(auto_created=True,primary_key=True,serialize=False,verbose_name='ID')),('name',models.CharField(max_length=200)),('target_amount',models.DecimalField(decimal_places=2,max_digits=15)),('current_amount',models.DecimalField(decimal_places=2,default=0,max_digits=15)),('target_date',models.DateField()),('monthly_contribution',models.DecimalField(decimal_places=2,default=0,max_digits=15))]),
+      migrations.CreateModel(name='MonthlyContribution',fields=[('id',models.BigAutoField(auto_created=True,primary_key=True,serialize=False,verbose_name='ID')),('month',models.DateField(help_text='First day of month')),('asset',models.CharField(choices=[('Mutual Funds','Mutual Funds'),('Gold','Gold'),('Silver','Silver'),('Bonds','Bonds'),('Other','Other')],max_length=30)),('amount',models.DecimalField(decimal_places=2,default=0,max_digits=15))]),
+      migrations.AddConstraint(model_name='monthlycontribution',constraint=models.UniqueConstraint(fields=('month','asset'),name='unique_month_asset')),
+    ]
