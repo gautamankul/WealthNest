@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Sum
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
@@ -398,6 +399,44 @@ def holding_value_api(request, pk):
 # ============================================================
 
 
+def sync_contribution_holdings(user):
+    """
+    Make each 'Monthly contributions – <asset>' holding's invested amount
+    equal the sum of all saved monthly contributions for that asset.
+    Any difference is added to current_value (valued at cost).
+    Self-healing: safe to call any time, also backfills old months.
+    """
+    totals = {
+        row["asset"]: row["total"] or Decimal(0)
+        for row in MonthlyContribution.objects.filter(created_by=user)
+        .values("asset")
+        .annotate(total=Sum("amount"))
+    }
+
+    for a in ASSETS:
+        total = totals.get(a, Decimal(0))
+
+        holding, _ = Investment.objects.get_or_create(
+            created_by=user,
+            asset=a,
+            name=f"Monthly contributions – {a}",
+            defaults={
+                "updated_by": user,
+                "invested_amount": 0,
+                "current_value": 0,
+            },
+        )
+
+        diff = total - holding.invested_amount
+
+        if diff != 0:
+            holding.invested_amount += diff
+            holding.current_value += diff
+            holding.updated_by = user
+            holding.save()
+
+
+
 @login_required
 @require_http_methods(["POST"])
 def monthly_api(request):
@@ -455,16 +494,6 @@ def monthly_api(request):
     with transaction.atomic():
 
         for a, amount in amounts.items():
-
-            existing = MonthlyContribution.objects.filter(
-                created_by=request.user,
-                month=month,
-                asset=a,
-            ).first()
-
-            old_amount = existing.amount if existing else Decimal(0)
-            delta = amount - old_amount
-
             MonthlyContribution.objects.update_or_create(
                 created_by=request.user,
                 month=month,
@@ -475,23 +504,7 @@ def monthly_api(request):
                 },
             )
 
-            if delta != 0:
-                holding, _ = Investment.objects.get_or_create(
-                    created_by=request.user,
-                    asset=a,
-                    name=f"Monthly contributions – {a}",
-                    defaults={
-                        "updated_by": request.user,
-                        "invested_amount": 0,
-                        "current_value": 0,
-                    },
-                )
-
-                # New money is valued at cost until market value is updated
-                holding.invested_amount += delta
-                holding.current_value += delta
-                holding.updated_by = request.user
-                holding.save()
+        sync_contribution_holdings(request.user)
 
     return JsonResponse({"ok": True})
 
@@ -692,9 +705,18 @@ def report_api(request):
 @login_required
 def dashboard(request):
 
+    # Backfill: make sure saved months are reflected in holdings
+    with transaction.atomic():
+        sync_contribution_holdings(request.user)
+
+    data = payload(request.user)
+
     return render(
         request,
         "portfolio/dashboard.html",
+        {
+            "next_budget": round(data["next_budget"]),
+        },
     )
 
 

@@ -76,7 +76,7 @@
                 <div class="card-head">
                     <h2>Next Monthly Allocation</h2><span class="badge">Target based</span>
                 </div>
-                <p class="muted">If you invest another ₹35,000, use the target gaps below as a guide. This is an
+                <p class="muted">{% if next_budget %}If you invest another ₹{{ next_budget }} (your 3-month average){% else %}When you add monthly updates, your average monthly investment appears here{% endif %}, use the target gaps below as a guide. This is an
                     allocation aid, not financial advice.</p>
                 <div id="suggested"></div>
                 <div class="callout">🎯 The goal is to gradually move your portfolio toward your chosen percentages.
@@ -146,7 +146,8 @@
                 <div class="projection expected"><span>📊 Expected</span><b id="expected">₹0</b><em>+10%</em></div>
                 <div class="projection optimistic"><span>📈 Optimistic</span><b id="optimistic">₹0</b><em>+16%</em>
                 </div>
-                <p class="muted">Scenario estimates are simple assumptions and are not guaranteed.</p>
+                <p class="muted">Scenario estimates include your average monthly investment and are simple assumptions,
+                    not guaranteed.</p>
             </div>
         </section>
         <section class="tracker">
@@ -163,7 +164,7 @@
         <div class="modal-card"><button class="close" onclick="closeModals()">×</button>
             <h2>Monthly Investment Update</h2>
             <p class="muted">Enter how much you invested in each type for one month. Existing month/type values are
-                replaced.</p>
+                replaced, and your holdings update automatically.</p>
             <form onsubmit="saveMonthly(event)"><label>Month<input name="month" id="month" type="month"
                         required></label>
                 <div class="two"><label>Mutual Funds<input name="Mutual Funds" id="m1" type="number" min="0"
