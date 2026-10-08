@@ -2,13 +2,37 @@ from django.contrib.auth.models import User
 from django.db import models
 
 
-ASSET_CHOICES = [
-    ("Mutual Funds", "Mutual Funds"),
-    ("Gold", "Gold"),
-    ("Silver", "Silver"),
-    ("Bonds", "Bonds"),
-    ("Other", "Other"),
-]
+class Asset(models.Model):
+    """
+    Asset type (Mutual Funds, Gold, ...). Table: assets.
+
+    created_by is NULL  -> default asset shared by every user
+    created_by is a user -> custom asset visible only to that user
+    """
+
+    created_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="created_assets",
+    )
+    name = models.CharField(max_length=30)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "assets"
+        ordering = ["sort_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["created_by", "name"],
+                name="unique_user_asset_name",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
 
 
 class Investment(models.Model):
@@ -23,7 +47,11 @@ class Investment(models.Model):
         related_name="updated_investments",
     )
 
-    asset = models.CharField(max_length=30, choices=ASSET_CHOICES)
+    asset = models.ForeignKey(
+        Asset,
+        on_delete=models.PROTECT,
+        related_name="investments",
+    )
     name = models.CharField(max_length=200)
     purchase_date = models.DateField(null=True, blank=True)
     quantity = models.DecimalField(
@@ -71,7 +99,11 @@ class MonthlyContribution(models.Model):
     )
 
     month = models.DateField(help_text="First day of month")
-    asset = models.CharField(max_length=30, choices=ASSET_CHOICES)
+    asset = models.ForeignKey(
+        Asset,
+        on_delete=models.PROTECT,
+        related_name="monthly_contributions",
+    )
     amount = models.DecimalField(
         max_digits=15,
         decimal_places=2,
@@ -100,10 +132,10 @@ class AllocationTarget(models.Model):
         related_name="updated_allocation_targets",
     )
 
-    asset = models.CharField(
-        max_length=30,
-        choices=ASSET_CHOICES,
-        unique=False,
+    asset = models.ForeignKey(
+        Asset,
+        on_delete=models.PROTECT,
+        related_name="allocation_targets",
     )
     target_pct = models.DecimalField(
         max_digits=5,

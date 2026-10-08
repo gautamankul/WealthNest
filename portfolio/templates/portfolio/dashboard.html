@@ -96,12 +96,8 @@
                     <thead>
                         <tr>
                             <th>Month</th>
-                            <th>Mutual Funds</th>
-                            <th>Gold</th>
-                            <th>Silver</th>
-                            <th>Bonds</th>
-                            <th>Other</th>
-                            <th>Total</th>
+                            {% for a in assets %}<th>{{ a.name }}</th>
+                            {% endfor %}<th>Total</th>
                         </tr>
                     </thead>
                     <tbody id="monthlyTable"></tbody>
@@ -165,14 +161,12 @@
             <h2>Monthly Investment Update</h2>
             <p class="muted">Enter how much you invested in each type for one month. Existing month/type values are
                 replaced, and your holdings update automatically.</p>
+            <button type="button" class="outline small"
+                onclick="closeModals(); openModal('assetModal')">＋ Add / manage assets</button>
             <form onsubmit="saveMonthly(event)"><label>Month<input name="month" id="month" type="month"
                         required></label>
-                <div class="two"><label>Mutual Funds<input name="Mutual Funds" id="m1" type="number" min="0"
-                            value="0"></label><label>Gold<input name="Gold" id="m2" type="number" min="0"
-                            value="0"></label><label>Silver<input name="Silver" id="m3" type="number" min="0"
-                            value="0"></label><label>Bonds<input name="Bonds" id="m4" type="number" min="0"
-                            value="0"></label><label>Other<input name="Other" id="m5" type="number" min="0"
-                            value="0"></label></div><button class="primary full">Save Monthly Update</button>
+                <div class="two">{% for a in assets %}<label>{{ a.name }}<input name="{{ a.name }}" id="m{{ a.index }}"
+                            data-asset-id="{{ a.id }}" type="number" min="0" value="0"></label>{% endfor %}</div><button class="primary full">Save Monthly Update</button>
             </form>
         </div>
     </div>
@@ -181,25 +175,17 @@
             <h2>Target Allocation</h2>
             <p class="muted">Set your preferred portfolio mix. Total should equal 100%.</p>
             <form onsubmit="saveTargets(event)">
-                <div class="two"><label>Mutual Funds %<input name="Mutual Funds" type="number" step="0.1"
-                            value="45"></label><label>Gold %<input name="Gold" type="number" step="0.1"
-                            value="20"></label><label>Silver %<input name="Silver" type="number" step="0.1"
-                            value="10"></label><label>Bonds %<input name="Bonds" type="number" step="0.1"
-                            value="20"></label><label>Other %<input name="Other" type="number" step="0.1"
-                            value="5"></label></div><button class="primary full">Save Targets</button>
+                <div class="two">{% for a in assets %}<label>{{ a.name }} %<input name="{{ a.name }}" type="number" step="0.1"
+                            value="{{ a.target|floatformat:'-1' }}"></label>{% endfor %}</div><button class="primary full">Save Targets</button>
             </form>
         </div>
     </div>
     <div class="modal hidden" id="investmentModal">
         <div class="modal-card"><button class="close" onclick="closeModals()">×</button>
             <h2>Add Holding</h2>
-            <form onsubmit="saveInvestment(event)"><label>Asset<select name="asset">
-                        <option>Mutual Funds</option>
-                        <option>Gold</option>
-                        <option>Silver</option>
-                        <option>Bonds</option>
-                        <option>Other</option>
-                    </select></label><label>Investment Name<input name="name" required
+            <form onsubmit="saveInvestment(event)"><label>Asset<select name="asset" required>
+                        {% for a in assets %}<option value="{{ a.id }}">{{ a.name }}</option>
+                        {% endfor %}</select></label><label>Investment Name<input name="name" required
                         placeholder="e.g. HDFC Flexi Cap"></label><label>Invested Amount (₹)<input
                         name="invested_amount" type="number" min="0" required></label><label>Current Value (₹)<input
                         name="current_value" type="number" min="0" required></label><button class="primary full">Save
@@ -217,6 +203,56 @@
                     Goal</button></form>
         </div>
     </div>
+    <div class="modal hidden" id="assetModal">
+        <div class="modal-card"><button class="close" onclick="closeModals()">×</button>
+            <h2>Your Assets</h2>
+            <p class="muted">Create your own asset types (e.g. Stocks, Crypto, PPF). They appear in your monthly
+                update, targets and holdings.</p>
+            <form id="assetForm" data-url="{% url 'asset_api' %}" onsubmit="saveAsset(event)">
+                {% csrf_token %}
+                <label>New Asset Name<input name="name" maxlength="30" required placeholder="e.g. Stocks"></label>
+                <button class="primary full">Add Asset</button>
+            </form>
+            <div id="assetList">
+                {% for a in assets %}
+                <p class="muted">
+                    {{ a.name }}
+                    {% if a.is_custom %}
+                    <button type="button" class="outline small" data-name="{{ a.name }}"
+                        data-url="{% url 'asset_delete_api' a.id %}" onclick="deleteAsset(this)">Delete</button>
+                    {% else %}<small>(default)</small>{% endif %}
+                </p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <script>
+        async function saveAsset(e) {
+            e.preventDefault();
+            const form = e.target;
+            try {
+                const res = await fetch(form.dataset.url, {
+                    method: 'POST', body: new FormData(form), credentials: 'same-origin'
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) { location.reload(); }
+                else { alert(data.error || 'Could not save asset.'); }
+            } catch (err) { alert('Network error. Please try again.'); }
+        }
+
+        async function deleteAsset(btn) {
+            if (!confirm('Delete asset "' + btn.dataset.name + '"?')) return;
+            const token = document.querySelector('#assetForm [name=csrfmiddlewaretoken]').value;
+            try {
+                const res = await fetch(btn.dataset.url, {
+                    method: 'POST', headers: { 'X-CSRFToken': token }, credentials: 'same-origin'
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) { location.reload(); }
+                else { alert(data.error || 'Could not delete asset.'); }
+            } catch (err) { alert('Network error. Please try again.'); }
+        }
+    </script>
     <script src="{% static 'portfolio/app.js' %}"></script>
 </body>
 

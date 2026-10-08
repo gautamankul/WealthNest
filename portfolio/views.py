@@ -3,20 +3,18 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Max, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
 from .models import (
+    Asset,
     Investment,
     MonthlyContribution,
     AllocationTarget,
     Goal,
-    ASSET_CHOICES,
 )
-
-ASSETS = [x[0] for x in ASSET_CHOICES]
 
 # Scenario annual returns (match the +5% / +10% / +16% labels in the UI)
 SCENARIOS = {
@@ -25,6 +23,15 @@ SCENARIOS = {
     "optimistic": Decimal("0.16"),
 }
 GOAL_ANNUAL_RETURN = Decimal("0.10")
+
+# Only used to pre-fill the Target modal when the user has no saved targets
+DEFAULT_TARGETS = {
+    "Mutual Funds": 45,
+    "Gold": 20,
+    "Silver": 10,
+    "Bonds": 20,
+    "Other": 5,
+}
 
 
 # ============================================================
@@ -38,6 +45,40 @@ def f(x):
 
 def money(x):
     return f(x)
+
+
+# Names that would collide with other form fields
+RESERVED_ASSET_NAMES = {"month", "asset", "name", "csrfmiddlewaretoken"}
+
+
+def visible_assets(user):
+    """Default assets (created_by NULL) + the user's own custom assets."""
+    return Asset.objects.filter(Q(created_by__isnull=True) | Q(created_by=user))
+
+
+def get_assets(user):
+    """Assets this user can use, ordered by sort_order, name."""
+    return list(visible_assets(user))
+
+
+def resolve_asset(value, user):
+    """Accept an Asset id or name; only returns assets visible to the user."""
+    if value is None:
+        return None
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    qs = visible_assets(user)
+
+    if value.isdigit():
+        obj = qs.filter(pk=int(value)).first()
+        if obj:
+            return obj
+
+    return qs.filter(name=value).first()
 
 
 def parse_decimal(value, default="0"):
@@ -98,12 +139,60 @@ def split_budget(allocation, budget, total_value):
     return out
 
 
+def sync_contribution_holdings(user):
+    """
+    Make each 'Monthly contributions – <asset>' holding's invested amount
+    equal the sum of all saved monthly contributions for that asset.
+    Any difference is added to current_value (valued at cost).
+    Self-healing: safe to call any time, also backfills old months.
+    """
+    totals = {
+        row["asset"]: row["total"] or Decimal(0)
+        for row in MonthlyContribution.objects.filter(created_by=user)
+        .order_by()
+        .values("asset")
+        .annotate(total=Sum("amount"))
+    }
+
+    for asset in get_assets(user):
+        total = totals.get(asset.id, Decimal(0))
+
+        holding = Investment.objects.filter(
+            created_by=user,
+            asset=asset,
+            name=f"Monthly contributions – {asset.name}",
+        ).first()
+
+        if holding is None:
+            if total == 0:
+                continue  # nothing to track yet
+
+            holding = Investment.objects.create(
+                created_by=user,
+                updated_by=user,
+                asset=asset,
+                name=f"Monthly contributions – {asset.name}",
+                invested_amount=0,
+                current_value=0,
+            )
+
+        diff = total - holding.invested_amount
+
+        if diff != 0:
+            holding.invested_amount += diff
+            holding.current_value += diff
+            holding.updated_by = user
+            holding.save()
+
+
 # ============================================================
 # DASHBOARD PAYLOAD
 # ============================================================
 
 
 def payload(user):
+
+    assets = get_assets(user)
 
     # --------------------------------------------------------
     # INVESTMENTS
@@ -120,23 +209,24 @@ def payload(user):
     # --------------------------------------------------------
 
     targets = {
-        x.asset: f(x.target_pct)
+        x.asset_id: f(x.target_pct)
         for x in AllocationTarget.objects.filter(created_by=user)
     }
 
     allocation = []
 
-    for a in ASSETS:
-        ai = sum((x.invested_amount for x in inv if x.asset == a), Decimal(0))
-        av = sum((x.current_value for x in inv if x.asset == a), Decimal(0))
+    for a in assets:
+        ai = sum((x.invested_amount for x in inv if x.asset_id == a.id), Decimal(0))
+        av = sum((x.current_value for x in inv if x.asset_id == a.id), Decimal(0))
 
         p = av - ai
         cur = f(av / total_v * 100) if total_v else 0
-        tgt = targets.get(a, 0)
+        tgt = targets.get(a.id, 0)
 
         allocation.append(
             {
-                "asset": a,
+                "asset": a.name,
+                "asset_id": a.id,
                 "invested": f(ai),
                 "value": f(av),
                 "profit_loss": f(p),
@@ -153,10 +243,10 @@ def payload(user):
 
     months = {}
 
-    for x in MonthlyContribution.objects.filter(created_by=user):
+    for x in MonthlyContribution.objects.filter(created_by=user).select_related("asset"):
         month_key = x.month.isoformat()[:7]
         months.setdefault(month_key, {})
-        months[month_key][x.asset] = f(x.amount)
+        months[month_key][x.asset.name] = f(x.amount)
 
     monthly_series = [
         {
@@ -253,6 +343,7 @@ def payload(user):
     # --------------------------------------------------------
 
     return {
+        "assets": [{"id": a.id, "name": a.name} for a in assets],
         "total_invested": f(total_i),
         "current_value": f(total_v),
         "profit_loss": f(profit),
@@ -281,6 +372,99 @@ def dashboard_api(request):
 
 
 # ============================================================
+# ASSET APIs (user creates / deletes own assets)
+# ============================================================
+
+
+@login_required
+@require_http_methods(["POST"])
+def asset_api(request):
+
+    name = " ".join((request.POST.get("name") or "").split())
+
+    if not name:
+        return JsonResponse(
+            {"ok": False, "error": "Asset name is required."},
+            status=400,
+        )
+
+    if len(name) > 30:
+        return JsonResponse(
+            {"ok": False, "error": "Asset name must be 30 characters or fewer."},
+            status=400,
+        )
+
+    if name.lower() in RESERVED_ASSET_NAMES:
+        return JsonResponse(
+            {"ok": False, "error": "This name is reserved. Choose another."},
+            status=400,
+        )
+
+    qs = visible_assets(request.user)
+
+    if qs.filter(name__iexact=name).exists():
+        return JsonResponse(
+            {"ok": False, "error": "You already have an asset with this name."},
+            status=400,
+        )
+
+    last = qs.aggregate(m=Max("sort_order"))["m"] or 0
+
+    asset = Asset.objects.create(
+        created_by=request.user,
+        name=name,
+        sort_order=last + 1,
+    )
+
+    return JsonResponse({"ok": True, "id": asset.id, "name": asset.name})
+
+
+@login_required
+@require_http_methods(["POST"])
+def asset_delete_api(request, pk):
+
+    asset = visible_assets(request.user).filter(pk=pk).first()
+
+    if asset is None:
+        return JsonResponse({"ok": False, "error": "Not found."}, status=404)
+
+    if asset.created_by_id is None:
+        return JsonResponse(
+            {"ok": False, "error": "Default assets cannot be deleted."},
+            status=400,
+        )
+
+    holdings = Investment.objects.filter(created_by=request.user, asset=asset)
+    contributions = MonthlyContribution.objects.filter(
+        created_by=request.user, asset=asset
+    )
+
+    has_money = (
+        holdings.exclude(invested_amount=0, current_value=0).exists()
+        or contributions.exclude(amount=0).exists()
+    )
+
+    if has_money:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "This asset has investments or contributions and cannot be deleted.",
+            },
+            status=400,
+        )
+
+    with transaction.atomic():
+        holdings.delete()
+        contributions.delete()
+        AllocationTarget.objects.filter(
+            created_by=request.user, asset=asset
+        ).delete()
+        asset.delete()
+
+    return JsonResponse({"ok": True})
+
+
+# ============================================================
 # INVESTMENT API
 # ============================================================
 
@@ -291,10 +475,10 @@ def investment_api(request):
 
     d = request.POST
 
-    asset = d.get("asset")
     name = d.get("name")
+    asset = resolve_asset(d.get("asset"), request.user)
 
-    if not asset or not name:
+    if not d.get("asset") or not name:
         return JsonResponse(
             {
                 "ok": False,
@@ -303,7 +487,7 @@ def investment_api(request):
             status=400,
         )
 
-    if asset not in ASSETS:
+    if asset is None:
         return JsonResponse(
             {
                 "ok": False,
@@ -399,44 +583,6 @@ def holding_value_api(request, pk):
 # ============================================================
 
 
-def sync_contribution_holdings(user):
-    """
-    Make each 'Monthly contributions – <asset>' holding's invested amount
-    equal the sum of all saved monthly contributions for that asset.
-    Any difference is added to current_value (valued at cost).
-    Self-healing: safe to call any time, also backfills old months.
-    """
-    totals = {
-        row["asset"]: row["total"] or Decimal(0)
-        for row in MonthlyContribution.objects.filter(created_by=user)
-        .values("asset")
-        .annotate(total=Sum("amount"))
-    }
-
-    for a in ASSETS:
-        total = totals.get(a, Decimal(0))
-
-        holding, _ = Investment.objects.get_or_create(
-            created_by=user,
-            asset=a,
-            name=f"Monthly contributions – {a}",
-            defaults={
-                "updated_by": user,
-                "invested_amount": 0,
-                "current_value": 0,
-            },
-        )
-
-        diff = total - holding.invested_amount
-
-        if diff != 0:
-            holding.invested_amount += diff
-            holding.current_value += diff
-            holding.updated_by = user
-            holding.save()
-
-
-
 @login_required
 @require_http_methods(["POST"])
 def monthly_api(request):
@@ -465,17 +611,24 @@ def monthly_api(request):
             status=400,
         )
 
-    # Validate everything first so a partial month is never saved
+    assets = get_assets(request.user)
+
+    # Validate everything first so a partial month is never saved.
+    # Form fields are named after the asset (name="Gold") or its id (name="2").
     amounts = {}
 
-    for a in ASSETS:
-        amount = parse_decimal(d.get(a))
+    for a in assets:
+        raw = d.get(a.name)
+        if raw is None:
+            raw = d.get(str(a.id))
+
+        amount = parse_decimal(raw)
 
         if amount is None:
             return JsonResponse(
                 {
                     "ok": False,
-                    "error": f"Invalid amount for {a}.",
+                    "error": f"Invalid amount for {a.name}.",
                 },
                 status=400,
             )
@@ -484,7 +637,7 @@ def monthly_api(request):
             return JsonResponse(
                 {
                     "ok": False,
-                    "error": f"Amount for {a} cannot be negative.",
+                    "error": f"Amount for {a.name} cannot be negative.",
                 },
                 status=400,
             )
@@ -522,15 +675,19 @@ def targets_api(request):
 
     values = {}
 
-    for a in ASSETS:
+    for a in get_assets(request.user):
 
-        value = parse_decimal(request.POST.get(a))
+        raw = request.POST.get(a.name)
+        if raw is None:
+            raw = request.POST.get(str(a.id))
+
+        value = parse_decimal(raw)
 
         if value is None:
             return JsonResponse(
                 {
                     "ok": False,
-                    "error": f"Invalid percentage for {a}.",
+                    "error": f"Invalid percentage for {a.name}.",
                 },
                 status=400,
             )
@@ -660,7 +817,11 @@ def report_api(request):
     start = request.GET.get("start")
     end = request.GET.get("end")
 
-    qs = MonthlyContribution.objects.filter(created_by=request.user)
+    assets = get_assets(request.user)
+
+    qs = MonthlyContribution.objects.filter(created_by=request.user).select_related(
+        "asset"
+    )
 
     if start:
         qs = qs.filter(month__gte=start + "-01")
@@ -675,10 +836,10 @@ def report_api(request):
 
         data.setdefault(
             month_key,
-            {a: 0 for a in ASSETS},
+            {a.name: 0 for a in assets},
         )
 
-        data[month_key][x.asset] = f(x.amount)
+        data[month_key][x.asset.name] = f(x.amount)
 
     rows = [
         {
@@ -691,6 +852,7 @@ def report_api(request):
 
     return JsonResponse(
         {
+            "assets": [a.name for a in assets],
             "rows": rows,
             "total": sum(x["total"] for x in rows),
         }
@@ -711,10 +873,29 @@ def dashboard(request):
 
     data = payload(request.user)
 
+    saved_targets = {
+        t.asset_id: f(t.target_pct)
+        for t in AllocationTarget.objects.filter(created_by=request.user)
+    }
+
+    asset_rows = [
+        {
+            "id": a.id,
+            "name": a.name,
+            "index": i,
+            "is_custom": a.created_by_id is not None,
+            "target": saved_targets.get(
+                a.id, DEFAULT_TARGETS.get(a.name, 0) if a.created_by_id is None else 0
+            ),
+        }
+        for i, a in enumerate(get_assets(request.user), start=1)
+    ]
+
     return render(
         request,
         "portfolio/dashboard.html",
         {
+            "assets": asset_rows,
             "next_budget": round(data["next_budget"]),
         },
     )
@@ -726,4 +907,7 @@ def reports(request):
     return render(
         request,
         "portfolio/reports.html",
+        {
+            "assets": get_assets(request.user),
+        },
     )
