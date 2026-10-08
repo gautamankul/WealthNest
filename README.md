@@ -31,3 +31,32 @@ Open http://127.0.0.1:8000/
 The first dashboard load seeds the example values from the supplied dashboard, including the portfolio holdings, target allocation and sample monthly contribution history. Replace them with your own data using the dashboard.
 
 Admin: http://127.0.0.1:8000/admin/
+
+
+## Create a new user
+1. Open a new shell 
+```
+python manage.py shell
+```
+
+2. Import the User model
+
+```
+from django.contrib.auth.models import User
+```
+
+3. Create a new user
+
+```
+user = User.objects.create_user( username='john_doe',email='john@example.com',password='securepassword123')
+```
+
+4. Optionally set additional fields
+user.first_name = 'John'
+user.last_name = 'Doe'
+
+5. Save the user instance
+
+```
+user.save()
+```
