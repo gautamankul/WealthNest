@@ -381,6 +381,7 @@ def dashboard_api(request):
 def asset_api(request):
 
     name = " ".join((request.POST.get("name") or "").split())
+    app = " ".join((request.POST.get("app") or "").split())
 
     if not name:
         return JsonResponse(
@@ -400,6 +401,12 @@ def asset_api(request):
             status=400,
         )
 
+    if len(app) > 50:
+        return JsonResponse(
+            {"ok": False, "error": "App name must be 50 characters or fewer."},
+            status=400,
+        )
+
     qs = visible_assets(request.user)
 
     if qs.filter(name__iexact=name).exists():
@@ -413,10 +420,11 @@ def asset_api(request):
     asset = Asset.objects.create(
         created_by=request.user,
         name=name,
+        app=app,
         sort_order=last + 1,
     )
 
-    return JsonResponse({"ok": True, "id": asset.id, "name": asset.name})
+    return JsonResponse({"ok": True, "id": asset.id, "name": asset.name, "app": asset.app})
 
 
 @login_required
@@ -882,6 +890,7 @@ def dashboard(request):
         {
             "id": a.id,
             "name": a.name,
+            "app":a.app,
             "index": i,
             "is_custom": a.created_by_id is not None,
             "target": saved_targets.get(

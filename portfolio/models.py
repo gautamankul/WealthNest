@@ -3,21 +3,9 @@ from django.db import models
 
 
 class Asset(models.Model):
-    """
-    Asset type (Mutual Funds, Gold, ...). Table: assets.
-
-    created_by is NULL  -> default asset shared by every user
-    created_by is a user -> custom asset visible only to that user
-    """
-
-    created_by = models.ForeignKey(
-        User,
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="created_assets",
-    )
+    created_by = models.ForeignKey(User,null=True,blank=True,on_delete=models.PROTECT,related_name="created_assets",)
     name = models.CharField(max_length=30)
+    app = models.CharField(max_length=50)
     sort_order = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 

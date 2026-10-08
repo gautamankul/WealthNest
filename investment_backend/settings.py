@@ -76,6 +76,14 @@ WSGI_APPLICATION = 'investment_backend.wsgi.application'
 db_token = os.getenv("DB_TOKEN")
 db_url = os.getenv("DB_URL")
 
+
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
 DATABASES = {
     "default": {
         "ENGINE": "django_libsql",
@@ -86,6 +94,8 @@ DATABASES = {
         },
     }
 }
+
+
 
 
 # Password validation

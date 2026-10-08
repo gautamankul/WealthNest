@@ -662,3 +662,85 @@ footer {
 .logout-btn:hover {
     background: rgba(255, 255, 255, 0.1);
 }
+
+/* ===== Allocated Assets modal ===== */
+#allocatedAssetsModal .modal-card {
+    max-width: 460px;
+    width: 92%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+#allocatedAssetsModal h2 {
+    margin: 0 0 4px;
+}
+
+#allocatedAssetsList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+/* each asset row */
+#allocatedAssetsList p {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0;
+    padding: 12px 14px;
+    background: #f8f9fc;
+    border: 1px solid #e5e7f0;
+    border-radius: 12px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+#allocatedAssetsList p:hover {
+    border-color: #c7c9f5;
+    box-shadow: 0 2px 8px rgba(91, 75, 224, .08);
+}
+
+#allocatedAssetsList b {
+    color: #1f2437;
+    font-size: 15px;
+}
+
+/* "managed in X" text sits under the name */
+#allocatedAssetsList p > b {
+    flex: 1;
+}
+
+#allocatedAssetsList small {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #eef0ff;
+    color: #5b4be0;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* delete button */
+#allocatedAssetsList .outline.small {
+    padding: 5px 12px;
+    font-size: 12px;
+    color: #d93a3a;
+    border-color: #f3c4c4;
+    background: #fff;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#allocatedAssetsList .outline.small:hover {
+    background: #fdecec;
+    border-color: #d93a3a;
+}
+
+/* empty state */
+#allocatedAssetsList p:only-child:not(:has(b)) {
+    justify-content: center;
+    background: transparent;
+    border-style: dashed;
+    color: #8a8fa3;
+}

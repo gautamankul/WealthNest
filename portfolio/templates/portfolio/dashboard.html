@@ -21,7 +21,8 @@
             <a href="#monthly">◈ <span>Monthly Update</span></a>
             <a href="#allocation">◎ <span>Allocation</span></a>
             <a href="#investments">▤ <span>Investments</span></a>
-            <a href="#goals">◌ <span>Goals</span></a><a href="/reports/">▥<span>Reports</span></a>
+            <a href="#goals">◌ <span>Goals</span></a>
+            <a href="/reports/">▥<span>Reports</span></a>
         </nav>
         <div class="tip">💡 <b>Monthly habit</b>
             <p>Enter each month's investment by asset. The dashboard recalculates percentages and rebalancing
@@ -51,7 +52,8 @@
                 <p>Track contributions, allocation, performance and goals in one place.</p>
             </div>
             <div class="actions"><button class="date-btn">📅 <span id="today"></span></button><button class="primary"
-                    onclick="openModal('monthlyModal')">＋ Add Monthly Update</button></div>
+                    onclick="openModal('monthlyModal')">＋ Add Monthly Update</button><button
+                    class="outline" onclick="openModal('allocatedAssetsModal')">▤ View Assets</button></div>
         </header>
         <section class="stats">
             <div class="stat"><span>💼 Total Invested</span><strong id="totalInvested">₹0</strong><small>All recorded
@@ -76,7 +78,9 @@
                 <div class="card-head">
                     <h2>Next Monthly Allocation</h2><span class="badge">Target based</span>
                 </div>
-                <p class="muted">{% if next_budget %}If you invest another ₹{{ next_budget }} (your 3-month average){% else %}When you add monthly updates, your average monthly investment appears here{% endif %}, use the target gaps below as a guide. This is an
+                <p class="muted">{% if next_budget %}If you invest another ₹{{ next_budget }} (your 3-month average){%
+                    else %}When you add monthly updates, your average monthly investment appears here{% endif %}, use
+                    the target gaps below as a guide. This is an
                     allocation aid, not financial advice.</p>
                 <div id="suggested"></div>
                 <div class="callout">🎯 The goal is to gradually move your portfolio toward your chosen percentages.
@@ -161,12 +165,13 @@
             <h2>Monthly Investment Update</h2>
             <p class="muted">Enter how much you invested in each type for one month. Existing month/type values are
                 replaced, and your holdings update automatically.</p>
-            <button type="button" class="outline small"
-                onclick="closeModals(); openModal('assetModal')">＋ Add / manage assets</button>
+            <button type="button" class="outline small" onclick="closeModals(); openModal('assetModal')">＋ Add / manage
+                assets</button>
             <form onsubmit="saveMonthly(event)"><label>Month<input name="month" id="month" type="month"
                         required></label>
                 <div class="two">{% for a in assets %}<label>{{ a.name }}<input name="{{ a.name }}" id="m{{ a.index }}"
-                            data-asset-id="{{ a.id }}" type="number" min="0" value="0"></label>{% endfor %}</div><button class="primary full">Save Monthly Update</button>
+                            data-asset-id="{{ a.id }}" type="number" min="0" value="0"></label>{% endfor %}</div><button
+                    class="primary full">Save Monthly Update</button>
             </form>
         </div>
     </div>
@@ -175,8 +180,9 @@
             <h2>Target Allocation</h2>
             <p class="muted">Set your preferred portfolio mix. Total should equal 100%.</p>
             <form onsubmit="saveTargets(event)">
-                <div class="two">{% for a in assets %}<label>{{ a.name }} %<input name="{{ a.name }}" type="number" step="0.1"
-                            value="{{ a.target|floatformat:'-1' }}"></label>{% endfor %}</div><button class="primary full">Save Targets</button>
+                <div class="two">{% for a in assets %}<label>{{ a.name }} %<input name="{{ a.name }}" type="number"
+                            step="0.1" value="{{ a.target|floatformat:'-1' }}"></label>{% endfor %}</div><button
+                    class="primary full">Save Targets</button>
             </form>
         </div>
     </div>
@@ -203,6 +209,26 @@
                     Goal</button></form>
         </div>
     </div>
+    <div class="modal hidden" id="allocatedAssetsModal">
+        <div class="modal-card">
+            <button class="close" onclick="closeModals()">×</button>
+            <h2>Allocated Assets</h2>
+            <p class="muted">Assets currently available in your portfolio.</p>
+            <div id="allocatedAssetsList">
+                {% for a in assets %}
+                <p class="muted">
+                    <b>{{ a.name }}</b>{% if a.app %} – managed in {{ a.app }}{% endif %}
+                    {% if a.is_custom %}
+                    <button type="button" class="outline small" data-name="{{ a.name }}"
+                        data-url="{% url 'asset_delete_api' a.id %}" onclick="deleteAsset(this)">Delete</button>
+                    {% else %}<small>(default)</small>{% endif %}
+                </p>
+                {% empty %}
+                <p class="muted">No assets yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
     <div class="modal hidden" id="assetModal">
         <div class="modal-card"><button class="close" onclick="closeModals()">×</button>
             <h2>Your Assets</h2>
@@ -211,6 +237,7 @@
             <form id="assetForm" data-url="{% url 'asset_api' %}" onsubmit="saveAsset(event)">
                 {% csrf_token %}
                 <label>New Asset Name<input name="name" maxlength="30" required placeholder="e.g. Stocks"></label>
+                <label>Asset Control App<input name="app" maxlength="30" placeholder="e.g. Groww"></label>
                 <button class="primary full">Add Asset</button>
             </form>
             <div id="assetList">
@@ -226,10 +253,12 @@
             </div>
         </div>
     </div>
+
     <script>
         async function saveAsset(e) {
             e.preventDefault();
             const form = e.target;
+            console.log('form data', form)
             try {
                 const res = await fetch(form.dataset.url, {
                     method: 'POST', body: new FormData(form), credentials: 'same-origin'
